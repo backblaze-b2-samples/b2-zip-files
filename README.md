@@ -217,24 +217,27 @@ DEBUG:app.py:Read 1667163 bytes, wrote 1116999 bytes, compression ratio was 67%
 DEBUG:app.py:Currently using 70 MB
 ```
 
-Your client can periodically poll the target file name until it is available. Here's a minimal example of how to do so using the AWS SDK for Python, [Boto3](https://boto3.amazonaws.com/v1/documentation/api/latest/index.html).
+Providing you use a file name that does not already exist, your client can periodically poll the target file name until it is available. Here's a minimal example of how to do so using the AWS SDK for Python, [Boto3](https://boto3.amazonaws.com/v1/documentation/api/latest/index.html).
 
 ```python
 s3_client = boto3.client('s3')
 
 while True:
     try:
-        response = s3_client.get_object(
+        # Get information on the object
+        s3_client.head_object(
             Bucket=bucket,
             Key=key
         )
         print(f'{bucket}/{key} is available')
         break
     except ClientError as err:
-        if err.response['Error']['Code'] == 'NoSuchKey':
+        if err.response['ResponseMetadata']['HTTPStatusCode'] == 404:
+            # The object was not found - sleep for a second then try again
             time.sleep(1)
         else:
-          raise err
+            # Some other problem!
+            raise err
 ```
 
 ## Going Further
