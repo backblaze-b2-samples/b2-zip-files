@@ -42,15 +42,19 @@ b2fs = S3FileSystem(version_aware=True)
 # Flask executor object
 executor = None
 
-# List bucket contents to check we can access the buckets in B2 before we start the app
+# Check that the buckets exist in B2 before we start the app
 try:
-    in_files = b2fs.ls(f'/{input_bucket_name}', refresh=True)
-    if input_bucket_name == output_bucket_name:
-        logger.debug(f'Connected to B2, {len(in_files)} files in {input_bucket_name}.')
+    if not b2fs.exists(f'/{input_bucket_name}'):
+        logger.error(f'Cannot access bucket: {input_bucket_name}')
+        sys.exit(errno.EINTR)
+
+    elif input_bucket_name == output_bucket_name:
+        logger.debug(f'Connected to B2, {input_bucket_name} exists.')
     else:
-        out_files = b2fs.ls(f'/{output_bucket_name}', refresh=True)
-        logger.debug(f'Connected to B2, {len(in_files)} files in {input_bucket_name}, '
-                     f'{len(out_files)} files in {output_bucket_name}.')
+        if not b2fs.exists(f'/{output_bucket_name}'):
+            logger.error(f'Cannot access bucket: {output_bucket_name}')
+            sys.exit(errno.EINTR)
+        logger.debug(f'Connected to B2, {input_bucket_name} and {output_bucket_name} exist.')
 except Exception as e:
     logger.error(f'Cannot connect to B2: {e}')
     print_exception(e)

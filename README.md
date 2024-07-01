@@ -76,7 +76,7 @@ Now you can start a Docker container, reading the environment variables from `.e
   config: python:config.gunicorn
   wsgi_app: None
 ...
-DEBUG:app.py:Connected to B2, 8 files in my-bucket.
+DEBUG:app.py:Connected to B2, my-bucket exists.
 ```
 
 Once the app is running, you can [send it a request](#sending-requests-to-the-app).
@@ -114,7 +114,7 @@ Once you have configured the app, created a virtual environment and installed th
 
 ```console
 % flask run
-iDEBUG:app.py:Connected to B2, 8 files in my-bucket.
+DEBUG:app.py:Connected to B2, my-bucket exists.
  * Debug mode: off
 INFO:werkzeug:WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
  * Running on http://127.0.0.1:5000
@@ -125,7 +125,7 @@ You can use the `--host` and `--port` to configure a different interface and/or 
 
 ```console
 % flask run --host=0.0.0.0 --port=8000 
-DEBUG:app.py:Connected to B2, 8 files in my-bucket.
+DEBUG:app.py:Connected to B2, my-bucket exists.
  * Debug mode: off
 INFO:werkzeug:WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
  * Running on all addresses (0.0.0.0)
@@ -149,7 +149,7 @@ Gunicorn does not read environment variables from a `.env` file, but you can use
 [2024-06-28 14:21:43 -0700] [56711] [INFO] Booting worker with pid: 56711
 [2024-06-28 14:21:43 -0700] [56712] [INFO] Booting worker with pid: 56712
 [2024-06-28 14:21:43 -0700] [56713] [INFO] Booting worker with pid: 56713
-DEBUG:app.py:Connected to B2, 8 files in my-bucket.
+DEBUG:app.py:Connected to B2, my-bucket exists.
 ...
 ```
 
