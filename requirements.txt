@@ -1,7 +1,8 @@
 Flask~=3.0.3
-flask-executor~=1.0.0
+Flask-Executor~=1.0.0
 fsspec~=2024.6.1
-gunicorn~=22.0.0
+gunicorn~=23.0.0
 psutil~=6.0.0
 python-dotenv~=1.0.1
 s3fs~=2024.6.1
+str2bool~=1.1

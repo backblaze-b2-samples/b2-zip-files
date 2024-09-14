@@ -5,7 +5,6 @@ import os
 import sys
 from functools import wraps
 from http import HTTPStatus
-import locale
 from shutil import copyfileobj
 from time import perf_counter
 from traceback import print_exception
@@ -16,9 +15,6 @@ from dotenv import load_dotenv
 from flask import Flask, Response, request, abort
 from flask_executor import Executor
 from s3fs import S3FileSystem
-
-# Auto-set locale for thousands separators in debug output
-locale.setlocale(locale.LC_ALL, '')
 
 load_dotenv()
 

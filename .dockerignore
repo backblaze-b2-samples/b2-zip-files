@@ -1,6 +1,12 @@
+.idea
 .git/
+.gitignore
 .pytest_cache/
 __pycache__/
+*.egg-info/
+
+.venv
+*.iml
 
 .dockerignore
 .env*

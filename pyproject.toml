@@ -1,0 +1,25 @@
+[project]
+name = 'b2-zip-files'
+description = "A sample application to create a ZIP file in a Backblaze B2 bucket from a set of files also in Backblaze B2"
+readme = "README.md"
+version = '1.0.0'
+requires-python = ">= 3.10"
+keywords = ["Backblaze", "B2" ]
+authors = [
+    {name = "Pat Patterson", email = "pat@backblaze.com"},
+]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+Documentation = "https://github.com/backblaze-b2-samples/b2-zip-files"
+Repository = "https://github.com/backblaze-b2-samples/b2-zip-files.git"
+Issues = "https://github.com/backblaze-b2-samples/b2-zip-files/issues"
+Changelog = "https://github.com/backblaze-b2-samples/b2-zip-files/blob/main/CHANGELOG.md"
