@@ -2,7 +2,7 @@
 
 This web app accepts a list of files to be compressed and the name of a ZIP file to be created. Since reading data from cloud object storage, compressing it, and then writing the compressed data back can take some time, the app responds with HTTP status `202 ACCEPTED` immediately it receives and parses a request, then launches a background job to perform the work.
 
-The app is implemented in Python using the [Flask](https://flask.palletsprojects.com/) web application framework and the [flask-executor](https://github.com/dchevell/flask-executor) task queue. You can run the app in the [Flask development server](https://flask.palletsprojects.com/en/2.3.x/server/), the [Gunicorn](https://gunicorn.org/) WSGI HTTP Server, or in a [Docker](https://www.docker.com/) container.
+The app is implemented in Python using the [Flask](https://flask.palletsprojects.com/) web application framework and the [flask-executor](https://github.com/dchevell/flask-executor) task queue. You can run the app in a [Docker](https://www.docker.com/) container, the [Flask development server](https://flask.palletsprojects.com/en/2.3.x/server/), or in the [Gunicorn](https://gunicorn.org/) WSGI HTTP Server.
 
 ## Create a Backblaze B2 Account, Bucket and Application Key
 
@@ -14,20 +14,9 @@ Follow these instructions, as necessary:
 
 Be sure to copy the application key as soon as you create it, as you will not be able to retrieve it later!
 
-## Download the Source Code
-
-```console
-% git clone git@github.com:backblaze-b2-samples/b2-zip-files.git
-Cloning into 'b2-zip-files'...
-remote: Enumerating objects: 60, done.
-remote: Counting objects: 100% (60/60), done.
-...
-% cd b2-zip-files
-```
-
 ## Configuration
 
-The app reads its configuration from a set of environment variables. The easiest way to manage these in many circumstances is via a `.env` file. Copy the included `.env.template` to `.env`:
+The app reads its configuration from a set of environment variables. The easiest way to manage these in many circumstances is via a `.env` file. Copy the included `.env.template` to `.env`, or create a new `.env` file:
 
 ```console
 % cp .env.template .env
@@ -42,6 +31,7 @@ AWS_SECRET_ACCESS_KEY='<Your Backblaze B2 Application Key>'
 AWS_ENDPOINT_URL='<Your bucket endpoint, prefixed with https://, for example, https://s3.us-west-004.backblazeb2.com>'
 BUCKET_NAME='<Your Backblaze B2 bucket name>'
 SHARED_SECRET='<A long random string known only to the app and its authorized clients>'
+PORT=8000
 ```
 
 You can configure different buckets for input and output files if you wish by replacing the `BUCKET_NAME` line with the following:
@@ -55,23 +45,10 @@ Note that, if you do use two buckets, your application key needs to have permiss
 
 ## Running the App in Docker
 
-The easiest way to run the app is via Docker, since it is the only prerequisite.
-
-First, build a Docker image. You can tag it to make it easier to work with later:
+The easiest way to run the app is via Docker, since it is the only prerequisite, reading the environment variables from `.env`. Gunicorn is installed in the Docker container and is configured to listen on port 8000, so you will need to use Docker's `-p` option to bind port 8000 to an available port on your machine. For example, if you wanted the Docker container to listen on port 80, you would run:
 
 ```console
-% docker build -t docker-user-name/b2-zip-files .
-[+] Building 7.5s (12/12) FINISHED                                                                                     docker:desktop-linux
- => [internal] load build definition from Dockerfile                                                                                   0.0s
- => => transferring dockerfile: 978B                                                                                                   0.0s
- => [internal] load metadata for docker.io/library/python:3.10                                                                         0.9s
-...
-```
-
-Now you can start a Docker container, reading the environment variables from `.env`. Gunicorn is installed in the Docker container and is configured to listen on port 8000, so you will need to use Docker's `-p` option to bind port 8000 to an available port on your machine. For example, if you wanted the Docker container to listen on port 80, you would run:
-
-```console
-% docker run -p 80:8000 --env-file .env superpat7/b2-zip-files:latest
+% docker run -p 80:8000 --env-file .env ghcr.io/backblaze-b2-samples/b2-zip-files:latest
 [2024-06-28 23:04:47 +0000] [1] [DEBUG] Current configuration:
   config: python:config.gunicorn
   wsgi_app: None
@@ -82,6 +59,17 @@ DEBUG:app.py:Connected to B2, my-bucket exists.
 Once the app is running, you can [send it a request](#sending-requests-to-the-app).
 
 You can publish the image to a repository and run it in a container on any cloud provider that supports Docker. For example, to deploy the app to AWS Fargate for Amazon ECS, you would [push your image to Amazon Elastic Container Registry](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/create-container-image.html#create-container-image-push-ecr), then [create an Amazon ECS Linux task for the Fargate launch type](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/getting-started-fargate.html).
+
+## Download the Source Code
+
+```console
+% git clone git@github.com:backblaze-b2-samples/b2-zip-files.git
+Cloning into 'b2-zip-files'...
+remote: Enumerating objects: 60, done.
+remote: Counting objects: 100% (60/60), done.
+...
+% cd b2-zip-files
+```
 
 ## Running the App on the Local Machine
 
