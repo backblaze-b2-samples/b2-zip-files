@@ -58,6 +58,8 @@ DEBUG:app.py:Connected to B2, my-bucket exists.
 
 Once the app is running, you can [send it a request](#sending-requests-to-the-app).
 
+If the app does not start correctly, see the [Troubleshooting](#troubleshooting) section below.
+
 You can publish the image to a repository and run it in a container on any cloud provider that supports Docker. For example, to deploy the app to AWS Fargate for Amazon ECS, you would [push your image to Amazon Elastic Container Registry](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/create-container-image.html#create-container-image-push-ecr), then [create an Amazon ECS Linux task for the Fargate launch type](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/getting-started-fargate.html).
 
 ## Download the Source Code
@@ -205,7 +207,7 @@ DEBUG:app.py:Read 1667163 bytes, wrote 1116999 bytes, compression ratio was 67%
 DEBUG:app.py:Currently using 70 MB
 ```
 
-Providing you use a file name that does not already exist, your client can periodically poll the target file name until it is available. Here's a minimal example of how to do so using the AWS SDK for Python, [Boto3](https://boto3.amazonaws.com/v1/documentation/api/latest/index.html).
+If you are building a server application, you can use [Event Notifications](https://www.backblaze.com/docs/cloud-storage-event-notifications) to have Backblaze B2 send your app a webhook request when the ZIP file has been created. Alternatively, your app can periodically poll the target file name until it is available. Here's a minimal example of how to do so using the AWS SDK for Python, [Boto3](https://boto3.amazonaws.com/v1/documentation/api/latest/index.html).
 
 ```python
 s3_client = boto3.client('s3')
@@ -227,6 +229,61 @@ while True:
             # Some other problem!
             raise err
 ```
+
+## Troubleshooting
+
+Append the following line to your `.env` to get more verbose log output:
+
+```dotenv
+S3FS_LOGGING_LEVEL=DEBUG
+```
+
+Here are some common errors you might see:
+
+---
+
+```
+DEBUG:s3fs:Nonretryable error: Could not connect to the endpoint URL: "https://s3.us-west-004.backblazeb2.com/my-bucket?list-type=2&max-keys=1&encoding-type=url"
+```
+
+The app cannot connect to Backblaze B2. Check that `AWS_ENDPOINT_URL` is correct, and that it is accessible from your environment.
+
+---
+
+```
+DEBUG:s3fs:Client error (maybe retryable): An error occurred (InvalidAccessKeyId) when calling the ListObjectsV2 operation: The key '0041234567890120000000001' is not valid
+```
+
+There are two causes of this error:
+
+- The `AWS_ACCESS_KEY_ID` value is not valid - check that the value matches the application key ID in the Backblaze web UI.
+- `AWS_ENDPOINT_URL` is set to the wrong value, so, although you have the right key, you're sending it to the wrong Backblaze B2 region.
+
+---
+
+```
+DEBUG:s3fs:Client error (maybe retryable): An error occurred (InvalidAccessKeyId) when calling the GetBucketLocation operation: Malformed Access Key Id
+```
+
+The `AWS_ACCESS_KEY_ID` value fails the basic checks on key length and structure. Check that the value matches the application key ID in the Backblaze web UI.
+
+---
+
+```
+DEBUG:s3fs:Client error (maybe retryable): An error occurred (SignatureDoesNotMatch) when calling the ListObjectsV2 operation: Signature validation failed
+```
+
+The `AWS_SECRET_ACCESS_KEY` value is incorrect. If you have not saved the application key, delete it in the Backblaze web UI and create a new one.
+
+---
+
+```
+DEBUG:s3fs:Client error (maybe retryable): An error occurred (NoSuchBucket) when calling the GetBucketLocation operation: The specified bucket does not exist: my-bucket
+```
+
+The `BUCKET_NAME` value is incorrect. Check the bucket name in the Backblaze web UI, or create a bucket if you have not already done so.
+
+---
 
 ## Going Further
 
