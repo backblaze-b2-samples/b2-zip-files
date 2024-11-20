@@ -2,7 +2,7 @@
 name = 'b2-zip-files'
 description = "A sample application to create a ZIP file in a Backblaze B2 bucket from a set of files also in Backblaze B2"
 readme = "README.md"
-version = '1.0.0'
+version = '1.0.1'
 requires-python = ">= 3.10"
 keywords = ["Backblaze", "B2" ]
 authors = [

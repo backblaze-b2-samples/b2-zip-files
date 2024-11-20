@@ -31,8 +31,11 @@ RUN ln -s /lib/*64-linux-gnu /lib/CHIPSET_ARCH \
 # Copy required libraries
 COPY --from=python-base /lib/*64-linux-gnu/libexpat* /lib/CHIPSET_ARCH/
 COPY --from=python-base /lib/*64-linux-gnu/libz.so.1 /lib/CHIPSET_ARCH/
+COPY --from=python-base /lib/*64-linux-gnu/libgcc_s.so.1 /lib/CHIPSET_ARCH/
+
 COPY --from=python-base /usr/lib/*64-linux-gnu/libffi* /usr/lib/CHIPSET_ARCH/
 COPY --from=python-base /usr/lib/*64-linux-gnu/libsqlite3.so.0 /usr/lib/CHIPSET_ARCH/
+COPY --from=python-base /usr/lib/*64-linux-gnu/libgcc_s.so.1 /usr/lib/CHIPSET_ARCH/
 
 WORKDIR /app
 
