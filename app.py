@@ -1,3 +1,4 @@
+import collections
 import errno
 import json
 import logging
@@ -77,9 +78,15 @@ def auth_required(view_function):
     @wraps(view_function)
     def decorated_function(*args, **kwargs):
         auth_header = request.headers.get('authorization')
-        if not auth_header or auth_header != f'Bearer {shared_secret}':
-            abort(HTTPStatus.UNAUTHORIZED)
-        return view_function(*args, **kwargs)
+        if not auth_header:
+            logger.error(f'Authorization header is missing')
+        elif not auth_header.lower().startswith('bearer '):
+            logger.error(f'Authorization header value "{auth_header}" does not contain "Bearer" scheme')
+        elif auth_header != f'Bearer {shared_secret}':
+            logger.error(f'Authorization header value "{auth_header}" does not match configuration')
+        else:
+            return view_function(*args, **kwargs)
+        abort(HTTPStatus.UNAUTHORIZED)
     return decorated_function
 
 
@@ -122,6 +129,7 @@ def make_zip_job(selected_filenames, zip_filename):
 
                     logger.debug(f'Wrote {input_path} to ZIP')
                 except FileNotFoundError:
+                    # Remove this exception handler if you want to fail on missing input files
                     logger.error(f'{input_path} not found - skipping')
 
         # Don't get the output file info unless we're going to log statistics!
@@ -138,6 +146,24 @@ def make_zip_job(selected_filenames, zip_filename):
 
     except Exception as err:
         logger.error(f'Exception zipping files', exc_info=err)
+
+
+def validate_request(req):
+    if 'files' not in req:
+        logger.error('Request does not contain "files" element')
+    elif 'target' not in req:
+        logger.error('Request does not contain "target" element')
+    elif not isinstance(req['files'], collections.abc.Sequence) or isinstance(req['files'], str):
+        logger.error('"files" element must be an array of filenames')
+    elif len(req['files']) == 0:
+        logger.error('"files" element must contain at least one filename')
+    elif not isinstance(req['target'], str):
+        logger.error('"target" element must be a filename')
+    elif not all(isinstance(f, str) for f in req['files']):
+        logger.error('"files" element must be an array of filenames')
+    else:
+        return True
+    return False
 
 
 @app.post('/')
@@ -159,6 +185,9 @@ def make_zip_endpoint():
 
     logger.debug(f'Request: {json.dumps(req, indent=2)}')
 
+    if not validate_request(req):
+        abort(HTTPStatus.BAD_REQUEST)
+
     # Zip the files asynchronously, so we can return a timely response to the caller
     make_zip_job.submit(req['files'], req['target'])
 
@@ -167,4 +196,4 @@ def make_zip_endpoint():
 
 if __name__ == '__main__':
     port = os.getenv('PORT', '5000')
-    app.run(port=port)
+    app.run(port=int(port))
