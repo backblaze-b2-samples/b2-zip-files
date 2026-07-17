@@ -25,17 +25,49 @@ The app reads its configuration from a set of environment variables. The easiest
 Now edit `.env`, pasting in your application key, its ID, bucket name, and region:
 
 ```dotenv
-LOGLEVEL=DEBUG
+LOGLEVEL=INFO
 B2_APPLICATION_KEY_ID='<Your Backblaze B2 Application Key ID>'
 B2_APPLICATION_KEY='<Your Backblaze B2 Application Key>'
 B2_BUCKET_NAME='<Your Backblaze B2 bucket name>'
 B2_REGION='<Your Backblaze B2 bucket region>'
+
+# Optional: use distinct buckets for source files and ZIP output.
+# If either value is set, both values must be set.
+# B2_INPUT_BUCKET_NAME='<Bucket with files to be zipped>'
+# B2_OUTPUT_BUCKET_NAME='<Bucket for zip files>'
+
+# Reserved for consistency with other Backblaze B2 samples; this app does not read it.
 B2_PUBLIC_URL_BASE='https://s3.<Your Backblaze B2 bucket region>.backblazeb2.com/<Your Backblaze B2 bucket name>'
 SHARED_SECRET='<A long random string known only to the app and its authorized clients>'
 PORT=8000
 ```
 
-The app derives the S3-compatible endpoint from `B2_REGION` as `https://s3.<B2_REGION>.backblazeb2.com`. `B2_PUBLIC_URL_BASE` follows the standard Backblaze B2 sample configuration shape; this app does not need it to create ZIP files.
+The app derives the S3-compatible endpoint from `B2_REGION` as `https://s3.<B2_REGION>.backblazeb2.com`. `B2_PUBLIC_URL_BASE` follows the standard Backblaze B2 sample configuration shape, but this ZIP service does not consume it.
+
+You can configure different buckets for input and output files by setting both `B2_INPUT_BUCKET_NAME` and `B2_OUTPUT_BUCKET_NAME`. If either value is set without the other, the app exits at startup instead of silently writing ZIP files into the wrong bucket.
+
+### Configuration Migration Notes
+
+This release reads the standardized `B2_*` names first and keeps a temporary fallback to the legacy variable names for deploy-safe rolling upgrades. During a rolling deployment, set both sets of names in your manifest or secret until all old workers have drained:
+
+```dotenv
+B2_APPLICATION_KEY_ID='<Your Backblaze B2 Application Key ID>'
+AWS_ACCESS_KEY_ID='<same value as B2_APPLICATION_KEY_ID>'
+B2_APPLICATION_KEY='<Your Backblaze B2 Application Key>'
+AWS_SECRET_ACCESS_KEY='<same value as B2_APPLICATION_KEY>'
+B2_REGION='<Your Backblaze B2 bucket region>'
+AWS_ENDPOINT_URL='https://s3.<Your Backblaze B2 bucket region>.backblazeb2.com'
+B2_BUCKET_NAME='<Your Backblaze B2 bucket name>'
+BUCKET_NAME='<same value as B2_BUCKET_NAME>'
+
+# If you use separate source/output buckets, set both naming schemes too.
+B2_INPUT_BUCKET_NAME='<Bucket with files to be zipped>'
+INPUT_BUCKET_NAME='<same value as B2_INPUT_BUCKET_NAME>'
+B2_OUTPUT_BUCKET_NAME='<Bucket for zip files>'
+OUTPUT_BUCKET_NAME='<same value as B2_OUTPUT_BUCKET_NAME>'
+```
+
+After the deployment has completed and old workers cannot restart, remove the legacy variables and keep only the `B2_*` names.
 
 ## Running the App in Docker
 
@@ -217,7 +249,7 @@ s3_client = boto3.client(
     endpoint_url=f'https://s3.{b2_region}.backblazeb2.com',
     aws_access_key_id=os.environ['B2_APPLICATION_KEY_ID'],
     aws_secret_access_key=os.environ['B2_APPLICATION_KEY'],
-    config=Config(user_agent_extra='b2-zip-files/1.0.2 (backblaze-b2-samples)'),
+    config=Config(user_agent_extra='<your app/version> (backblaze-b2-samples)'),
 )
 
 while True:

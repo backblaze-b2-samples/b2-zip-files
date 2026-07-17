@@ -1,9 +1,9 @@
 import collections
 import errno
+import hmac
 import json
 import logging
 import os
-import re
 import sys
 from functools import wraps
 from http import HTTPStatus
@@ -18,55 +18,45 @@ from flask import Flask, Response, request, abort
 from flask_executor import Executor
 from s3fs import S3FileSystem
 
+from b2_config import (
+    B2_CONNECT_TIMEOUT_SECONDS,
+    B2_MAX_RETRY_ATTEMPTS,
+    B2_READ_TIMEOUT_SECONDS,
+    B2_USER_AGENT_EXTRA,
+    get_required_env,
+    load_b2_settings,
+)
+
 load_dotenv()
 
 logging.basicConfig()
 logger = logging.getLogger(os.path.basename(__file__))
 logger.setLevel(os.environ.get('LOGLEVEL', 'INFO').upper())
 
-B2_USER_AGENT_EXTRA = 'b2-zip-files/1.0.2 (backblaze-b2-samples)'
-B2_REGION_PATTERN = re.compile(r'^[a-z]{2,}(?:-[a-z]+)+-\d{3}$')
-
-
-def get_required_env(name):
-    value = os.environ.get(name)
-    if not value:
-        logger.error(f'{name} must be set')
-        sys.exit(errno.EINTR)
-    return value
-
-
-def get_b2_endpoint_url(region):
-    if not B2_REGION_PATTERN.fullmatch(region):
-        logger.error(f'B2_REGION "{region}" is not a valid Backblaze B2 region')
-        sys.exit(errno.EINTR)
-    return f'https://s3.{region}.backblazeb2.com'
-
-
-shared_secret = os.environ.get('SHARED_SECRET')
-if not shared_secret:
-    logger.error(f'SHARED_SECRET must be set')
-    sys.exit(errno.EINTR)
-
-b2_application_key_id = get_required_env('B2_APPLICATION_KEY_ID')
-b2_application_key = get_required_env('B2_APPLICATION_KEY')
-b2_bucket_name = get_required_env('B2_BUCKET_NAME')
-b2_region = get_required_env('B2_REGION')
-b2_endpoint_url = get_b2_endpoint_url(b2_region)
-
-input_bucket_name = output_bucket_name = b2_bucket_name
+shared_secret = get_required_env('SHARED_SECRET')
+b2_settings = load_b2_settings()
+input_bucket_name = b2_settings.input_bucket_name
+output_bucket_name = b2_settings.output_bucket_name
 
 DEFAULT_COPY_BUFFER_SIZE = 1024 * 1024  # 1 MiB
 copy_buffer_size = os.environ.get('COPY_BUFFER_SIZE', default=DEFAULT_COPY_BUFFER_SIZE)
 
+client_kwargs = {}
+if b2_settings.region_name:
+    client_kwargs['region_name'] = b2_settings.region_name
+
 b2fs = S3FileSystem(
-    key=b2_application_key_id,
-    secret=b2_application_key,
-    endpoint_url=b2_endpoint_url,
-    client_kwargs={
-        'region_name': b2_region,
-    },
+    key=b2_settings.application_key_id,
+    secret=b2_settings.application_key,
+    endpoint_url=b2_settings.endpoint_url,
+    client_kwargs=client_kwargs,
     config_kwargs={
+        'connect_timeout': B2_CONNECT_TIMEOUT_SECONDS,
+        'read_timeout': B2_READ_TIMEOUT_SECONDS,
+        'retries': {
+            'max_attempts': B2_MAX_RETRY_ATTEMPTS,
+            'mode': 'standard',
+        },
         'user_agent_extra': B2_USER_AGENT_EXTRA,
     },
     version_aware=True,
@@ -104,12 +94,13 @@ def auth_required(view_function):
     @wraps(view_function)
     def decorated_function(*args, **kwargs):
         auth_header = request.headers.get('authorization')
+        expected_auth_header = f'Bearer {shared_secret}'
         if not auth_header:
             logger.error(f'Authorization header is missing')
         elif not auth_header.lower().startswith('bearer '):
-            logger.error(f'Authorization header value "{auth_header}" does not contain "Bearer" scheme')
-        elif auth_header != f'Bearer {shared_secret}':
-            logger.error(f'Authorization header value "{auth_header}" does not match configuration')
+            logger.error('Authorization header does not contain "Bearer" scheme')
+        elif not hmac.compare_digest(auth_header, expected_auth_header):
+            logger.error('Authorization header does not match configuration')
         else:
             return view_function(*args, **kwargs)
         abort(HTTPStatus.UNAUTHORIZED)
