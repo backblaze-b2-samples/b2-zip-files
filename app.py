@@ -3,6 +3,7 @@ import errno
 import json
 import logging
 import os
+import re
 import sys
 from functools import wraps
 from http import HTTPStatus
@@ -23,28 +24,53 @@ logging.basicConfig()
 logger = logging.getLogger(os.path.basename(__file__))
 logger.setLevel(os.environ.get('LOGLEVEL', 'INFO').upper())
 
+B2_USER_AGENT_EXTRA = 'b2-zip-files/1.0.2 (backblaze-b2-samples)'
+B2_REGION_PATTERN = re.compile(r'^[a-z]{2,}(?:-[a-z]+)+-\d{3}$')
+
+
+def get_required_env(name):
+    value = os.environ.get(name)
+    if not value:
+        logger.error(f'{name} must be set')
+        sys.exit(errno.EINTR)
+    return value
+
+
+def get_b2_endpoint_url(region):
+    if not B2_REGION_PATTERN.fullmatch(region):
+        logger.error(f'B2_REGION "{region}" is not a valid Backblaze B2 region')
+        sys.exit(errno.EINTR)
+    return f'https://s3.{region}.backblazeb2.com'
+
+
 shared_secret = os.environ.get('SHARED_SECRET')
 if not shared_secret:
     logger.error(f'SHARED_SECRET must be set')
     sys.exit(errno.EINTR)
 
-# Can configure one bucket as BUCKET_NAME or two buckets as INPUT_BUCKET_NAME
-# and OUTPUT_BUCKET_NAME
-input_bucket_name = os.environ.get('INPUT_BUCKET_NAME')
-if input_bucket_name:
-    output_bucket_name = os.environ.get('OUTPUT_BUCKET_NAME')
-else:
-    output_bucket_name = input_bucket_name = os.environ.get('BUCKET_NAME')
+b2_application_key_id = get_required_env('B2_APPLICATION_KEY_ID')
+b2_application_key = get_required_env('B2_APPLICATION_KEY')
+b2_bucket_name = get_required_env('B2_BUCKET_NAME')
+b2_region = get_required_env('B2_REGION')
+b2_endpoint_url = get_b2_endpoint_url(b2_region)
 
-if not input_bucket_name:
-    raise Exception("Input bucket name is not defined.")
-if not output_bucket_name:
-    raise Exception("Output bucket name is not defined.")
+input_bucket_name = output_bucket_name = b2_bucket_name
 
 DEFAULT_COPY_BUFFER_SIZE = 1024 * 1024  # 1 MiB
 copy_buffer_size = os.environ.get('COPY_BUFFER_SIZE', default=DEFAULT_COPY_BUFFER_SIZE)
 
-b2fs = S3FileSystem(version_aware=True)
+b2fs = S3FileSystem(
+    key=b2_application_key_id,
+    secret=b2_application_key,
+    endpoint_url=b2_endpoint_url,
+    client_kwargs={
+        'region_name': b2_region,
+    },
+    config_kwargs={
+        'user_agent_extra': B2_USER_AGENT_EXTRA,
+    },
+    version_aware=True,
+)
 
 # Flask executor object
 executor = None
