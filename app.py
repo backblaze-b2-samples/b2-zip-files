@@ -1,5 +1,6 @@
 import collections
 import errno
+import hmac
 import json
 import logging
 import os
@@ -17,34 +18,49 @@ from flask import Flask, Response, request, abort
 from flask_executor import Executor
 from s3fs import S3FileSystem
 
+from b2_config import (
+    B2_CONNECT_TIMEOUT_SECONDS,
+    B2_MAX_RETRY_ATTEMPTS,
+    B2_READ_TIMEOUT_SECONDS,
+    B2_USER_AGENT_EXTRA,
+    get_required_env,
+    load_b2_settings,
+)
+
 load_dotenv()
 
 logging.basicConfig()
 logger = logging.getLogger(os.path.basename(__file__))
 logger.setLevel(os.environ.get('LOGLEVEL', 'INFO').upper())
 
-shared_secret = os.environ.get('SHARED_SECRET')
-if not shared_secret:
-    logger.error(f'SHARED_SECRET must be set')
-    sys.exit(errno.EINTR)
-
-# Can configure one bucket as BUCKET_NAME or two buckets as INPUT_BUCKET_NAME
-# and OUTPUT_BUCKET_NAME
-input_bucket_name = os.environ.get('INPUT_BUCKET_NAME')
-if input_bucket_name:
-    output_bucket_name = os.environ.get('OUTPUT_BUCKET_NAME')
-else:
-    output_bucket_name = input_bucket_name = os.environ.get('BUCKET_NAME')
-
-if not input_bucket_name:
-    raise Exception("Input bucket name is not defined.")
-if not output_bucket_name:
-    raise Exception("Output bucket name is not defined.")
+shared_secret = get_required_env('SHARED_SECRET')
+b2_settings = load_b2_settings()
+input_bucket_name = b2_settings.input_bucket_name
+output_bucket_name = b2_settings.output_bucket_name
 
 DEFAULT_COPY_BUFFER_SIZE = 1024 * 1024  # 1 MiB
 copy_buffer_size = os.environ.get('COPY_BUFFER_SIZE', default=DEFAULT_COPY_BUFFER_SIZE)
 
-b2fs = S3FileSystem(version_aware=True)
+client_kwargs = {}
+if b2_settings.region_name:
+    client_kwargs['region_name'] = b2_settings.region_name
+
+b2fs = S3FileSystem(
+    key=b2_settings.application_key_id,
+    secret=b2_settings.application_key,
+    endpoint_url=b2_settings.endpoint_url,
+    client_kwargs=client_kwargs,
+    config_kwargs={
+        'connect_timeout': B2_CONNECT_TIMEOUT_SECONDS,
+        'read_timeout': B2_READ_TIMEOUT_SECONDS,
+        'retries': {
+            'max_attempts': B2_MAX_RETRY_ATTEMPTS,
+            'mode': 'standard',
+        },
+        'user_agent_extra': B2_USER_AGENT_EXTRA,
+    },
+    version_aware=True,
+)
 
 # Flask executor object
 executor = None
@@ -78,12 +94,13 @@ def auth_required(view_function):
     @wraps(view_function)
     def decorated_function(*args, **kwargs):
         auth_header = request.headers.get('authorization')
+        expected_auth_header = f'Bearer {shared_secret}'
         if not auth_header:
             logger.error(f'Authorization header is missing')
         elif not auth_header.lower().startswith('bearer '):
-            logger.error(f'Authorization header value "{auth_header}" does not contain "Bearer" scheme')
-        elif auth_header != f'Bearer {shared_secret}':
-            logger.error(f'Authorization header value "{auth_header}" does not match configuration')
+            logger.error('Authorization header does not contain "Bearer" scheme')
+        elif not hmac.compare_digest(auth_header, expected_auth_header):
+            logger.error('Authorization header does not match configuration')
         else:
             return view_function(*args, **kwargs)
         abort(HTTPStatus.UNAUTHORIZED)

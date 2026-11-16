@@ -16,32 +16,58 @@ Be sure to copy the application key as soon as you create it, as you will not be
 
 ## Configuration
 
-The app reads its configuration from a set of environment variables. The easiest way to manage these in many circumstances is via a `.env` file. Copy the included `.env.template` to `.env`, or create a new `.env` file:
+The app reads its configuration from a set of environment variables. The easiest way to manage these in many circumstances is via a `.env` file. Copy the included `.env.example` to `.env`, or create a new `.env` file:
 
 ```console
-% cp .env.template .env
+% cp .env.example .env
 ```
 
-Now edit `.env`, pasting in your application key, its ID, bucket name, and endpoint:
+Now edit `.env`, pasting in your application key, its ID, bucket name, and region:
 
 ```dotenv
-LOGLEVEL=DEBUG
-AWS_ACCESS_KEY_ID='<Your Backblaze B2 Application Key ID>'
-AWS_SECRET_ACCESS_KEY='<Your Backblaze B2 Application Key>'
-AWS_ENDPOINT_URL='<Your bucket endpoint, prefixed with https://, for example, https://s3.us-west-004.backblazeb2.com>'
-BUCKET_NAME='<Your Backblaze B2 bucket name>'
+LOGLEVEL=INFO
+B2_APPLICATION_KEY_ID='<Your Backblaze B2 Application Key ID>'
+B2_APPLICATION_KEY='<Your Backblaze B2 Application Key>'
+B2_BUCKET_NAME='<Your Backblaze B2 bucket name>'
+B2_REGION='<Your Backblaze B2 bucket region>'
+
+# Optional: use distinct buckets for source files and ZIP output.
+# If either value is set, both values must be set.
+# B2_INPUT_BUCKET_NAME='<Bucket with files to be zipped>'
+# B2_OUTPUT_BUCKET_NAME='<Bucket for zip files>'
+
+# Reserved for consistency with other Backblaze B2 samples; this app does not read it.
+B2_PUBLIC_URL_BASE='https://s3.<Your Backblaze B2 bucket region>.backblazeb2.com/<Your Backblaze B2 bucket name>'
 SHARED_SECRET='<A long random string known only to the app and its authorized clients>'
 PORT=8000
 ```
 
-You can configure different buckets for input and output files if you wish by replacing the `BUCKET_NAME` line with the following:
+The app derives the S3-compatible endpoint from `B2_REGION` as `https://s3.<B2_REGION>.backblazeb2.com`. `B2_PUBLIC_URL_BASE` follows the standard Backblaze B2 sample configuration shape, but this ZIP service does not consume it.
+
+You can configure different buckets for input and output files by setting both `B2_INPUT_BUCKET_NAME` and `B2_OUTPUT_BUCKET_NAME`. If either value is set without the other, the app exits at startup instead of silently writing ZIP files into the wrong bucket.
+
+### Configuration Migration Notes
+
+This release reads the standardized `B2_*` names first and keeps a temporary fallback to the legacy variable names for deploy-safe rolling upgrades. During a rolling deployment, set both sets of names in your manifest or secret until all old workers have drained:
 
 ```dotenv
-INPUT_BUCKET_NAME='<Bucket with files to be zipped>'
-OUTPUT_BUCKET_NAME='<Bucket for zip files>'
+B2_APPLICATION_KEY_ID='<Your Backblaze B2 Application Key ID>'
+AWS_ACCESS_KEY_ID='<same value as B2_APPLICATION_KEY_ID>'
+B2_APPLICATION_KEY='<Your Backblaze B2 Application Key>'
+AWS_SECRET_ACCESS_KEY='<same value as B2_APPLICATION_KEY>'
+B2_REGION='<Your Backblaze B2 bucket region>'
+AWS_ENDPOINT_URL='https://s3.<Your Backblaze B2 bucket region>.backblazeb2.com'
+B2_BUCKET_NAME='<Your Backblaze B2 bucket name>'
+BUCKET_NAME='<same value as B2_BUCKET_NAME>'
+
+# If you use separate source/output buckets, set both naming schemes too.
+B2_INPUT_BUCKET_NAME='<Bucket with files to be zipped>'
+INPUT_BUCKET_NAME='<same value as B2_INPUT_BUCKET_NAME>'
+B2_OUTPUT_BUCKET_NAME='<Bucket for zip files>'
+OUTPUT_BUCKET_NAME='<same value as B2_OUTPUT_BUCKET_NAME>'
 ```
 
-Note that, if you do use two buckets, your application key needs to have permissions to access both.
+After the deployment has completed and old workers cannot restart, remove the legacy variables and keep only the `B2_*` names.
 
 ## Running the App in Docker
 
@@ -210,7 +236,21 @@ DEBUG:app.py:Currently using 70 MB
 If you are building a server application, you can use [Event Notifications](https://www.backblaze.com/docs/cloud-storage-event-notifications) to have Backblaze B2 send your app a webhook request when the ZIP file has been created. Alternatively, your app can periodically poll the target file name until it is available. Here's a minimal example of how to do so using the AWS SDK for Python, [Boto3](https://boto3.amazonaws.com/v1/documentation/api/latest/index.html).
 
 ```python
-s3_client = boto3.client('s3')
+import os
+
+import boto3
+from botocore.config import Config
+
+b2_region = os.environ['B2_REGION']
+bucket = os.environ['B2_BUCKET_NAME']
+
+s3_client = boto3.client(
+    's3',
+    endpoint_url=f'https://s3.{b2_region}.backblazeb2.com',
+    aws_access_key_id=os.environ['B2_APPLICATION_KEY_ID'],
+    aws_secret_access_key=os.environ['B2_APPLICATION_KEY'],
+    config=Config(user_agent_extra='<your app/version> (backblaze-b2-samples)'),
+)
 
 while True:
     try:
@@ -243,10 +283,10 @@ Here are some common errors you might see:
 ---
 
 ```
-DEBUG:s3fs:Nonretryable error: Could not connect to the endpoint URL: "https://s3.us-west-004.backblazeb2.com/my-bucket?list-type=2&max-keys=1&encoding-type=url"
+DEBUG:s3fs:Nonretryable error: Could not connect to the endpoint URL: "https://s3.<B2_REGION>.backblazeb2.com/my-bucket?list-type=2&max-keys=1&encoding-type=url"
 ```
 
-The app cannot connect to Backblaze B2. Check that `AWS_ENDPOINT_URL` is correct, and that it is accessible from your environment.
+The app cannot connect to Backblaze B2. Check that `B2_REGION` is correct, and that the derived endpoint is accessible from your environment.
 
 ---
 
@@ -256,8 +296,8 @@ DEBUG:s3fs:Client error (maybe retryable): An error occurred (InvalidAccessKeyId
 
 There are two causes of this error:
 
-- The `AWS_ACCESS_KEY_ID` value is not valid - check that the value matches the application key ID in the Backblaze web UI.
-- `AWS_ENDPOINT_URL` is set to the wrong value, so, although you have the right key, you're sending it to the wrong Backblaze B2 region.
+- The `B2_APPLICATION_KEY_ID` value is not valid - check that the value matches the application key ID in the Backblaze web UI.
+- `B2_REGION` is set to the wrong value, so, although you have the right key, you're sending it to the wrong Backblaze B2 region.
 
 ---
 
@@ -265,7 +305,7 @@ There are two causes of this error:
 DEBUG:s3fs:Client error (maybe retryable): An error occurred (InvalidAccessKeyId) when calling the GetBucketLocation operation: Malformed Access Key Id
 ```
 
-The `AWS_ACCESS_KEY_ID` value fails the basic checks on key length and structure. Check that the value matches the application key ID in the Backblaze web UI.
+The `B2_APPLICATION_KEY_ID` value fails the basic checks on key length and structure. Check that the value matches the application key ID in the Backblaze web UI.
 
 ---
 
@@ -273,7 +313,7 @@ The `AWS_ACCESS_KEY_ID` value fails the basic checks on key length and structure
 DEBUG:s3fs:Client error (maybe retryable): An error occurred (SignatureDoesNotMatch) when calling the ListObjectsV2 operation: Signature validation failed
 ```
 
-The `AWS_SECRET_ACCESS_KEY` value is incorrect. If you have not saved the application key, delete it in the Backblaze web UI and create a new one.
+The `B2_APPLICATION_KEY` value is incorrect. If you have not saved the application key, delete it in the Backblaze web UI and create a new one.
 
 ---
 
@@ -281,7 +321,7 @@ The `AWS_SECRET_ACCESS_KEY` value is incorrect. If you have not saved the applic
 DEBUG:s3fs:Client error (maybe retryable): An error occurred (NoSuchBucket) when calling the GetBucketLocation operation: The specified bucket does not exist: my-bucket
 ```
 
-The `BUCKET_NAME` value is incorrect. Check the bucket name in the Backblaze web UI, or create a bucket if you have not already done so.
+The `B2_BUCKET_NAME` value is incorrect. Check the bucket name in the Backblaze web UI, or create a bucket if you have not already done so.
 
 ---
 
