@@ -31,54 +31,84 @@ jobs:
       id-token: write
 
     steps:
+      # The binfmt image docker/setup-qemu-action ran, pinned by digest.
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        env:
+          BINFMT_IMAGE: docker.io/tonistiigi/binfmt:latest@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
+        run: docker run --rm --privileged "$BINFMT_IMAGE" --install all
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        run: |
+          docker buildx create --use --name builder --driver docker-container
+          docker buildx inspect --bootstrap
 
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: v${{ inputs.tag }}
 
-      # Uses the `docker/login-action` action to log in to the Container registry using the account and password that
-      # will publish the packages. Once published, the packages are scoped to the account defined here.
+      # Logs in to the Container registry using the account and password that will publish the packages. Once
+      # published, the packages are scoped to the account defined here.
       - name: Log in to the Container registry
-        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          REGISTRY_USERNAME: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$REGISTRY_PASSWORD" | docker login "$REGISTRY" -u "$REGISTRY_USERNAME" --password-stdin
 
-      # This step uses [docker/metadata-action](https://github.com/docker/metadata-action#about) to extract tags and
-      # labels that will be applied to the specified image. The `id` "meta" allows the output of this step to be
-      # referenced in a subsequent step. The `images` value provides the base name for the tags and labels.
+      # Computes the tags and OCI labels docker/metadata-action produced for this config: the version tag, plus
+      # `latest` when asked. The `id` "meta" allows the output of this step to be referenced in a subsequent step.
       - name: Extract metadata (tags, labels) for Docker
         id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            # define match group
-            type=raw,value=${{ inputs.tag }}
-            type=match,pattern=latest,value=${{ inputs.latest && 'latest' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          LATEST: ${{ inputs.latest }}
+        run: |
+          set -euo pipefail
+          image="${REGISTRY}/${IMAGE_NAME,,}"
+          version="$(printf '%s' "$TAG" | sed -E 's/[^a-zA-Z0-9._-]+/-/g')"
+          [ -n "$version" ] || { echo "::error::empty tag"; exit 1; }
+          tags="${image}:${version}"
+          if [ "$LATEST" = true ]; then tags+=$'\n'"${image}:latest"; fi
+          repo="$(gh api "repos/${GITHUB_REPOSITORY}")"
+          labels="$(jq -r --arg version "$version" --arg created "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" --arg sha "$GITHUB_SHA" '
+            "org.opencontainers.image.created=\($created)",
+            "org.opencontainers.image.description=\(.description // "")",
+            "org.opencontainers.image.licenses=\(.license.spdx_id // "")",
+            "org.opencontainers.image.revision=\($sha)",
+            "org.opencontainers.image.source=\(.html_url // "")",
+            "org.opencontainers.image.title=\(.name // "")",
+            "org.opencontainers.image.url=\(.html_url // "")",
+            "org.opencontainers.image.version=\($version)"' <<< "$repo")"
+          delim="EOF_$(openssl rand -hex 16)"
+          {
+            echo "tags<<$delim"; echo "$tags"; echo "$delim"
+            echo "labels<<$delim"; echo "$labels"; echo "$delim"
+          } >> "$GITHUB_OUTPUT"
 
-      # This step uses the `docker/build-push-action` action to build the image, based on your repository's
-      # `Dockerfile`. If the build succeeds, it pushes the image to GitHub Packages.
-      # It uses the `context` parameter to define the build's context as the set of files located in the specified path.
-      # For more information, see "[Usage](https://github.com/docker/build-push-action#usage)" in the README of the
-      # `docker/build-push-action` repository.
-      # It uses the `tags` and `labels` parameters to tag and label the image with the output from the "meta" step.
+      # Builds the image from the repository's `Dockerfile` and, if the build succeeds, pushes it to GitHub Packages,
+      # tagged and labelled with the output from the "meta" step. The provenance attestation is the one
+      # docker/build-push-action added by default for a public repository. The pushed digest is this step's output.
       - name: Build and push Docker image
         id: push
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          LABELS: ${{ steps.meta.outputs.labels }}
+        run: |
+          set -euo pipefail
+          args=()
+          while IFS= read -r tag; do [ -z "$tag" ] || args+=(--tag "$tag"); done <<< "$TAGS"
+          while IFS= read -r label; do [ -z "$label" ] || args+=(--label "$label"); done <<< "$LABELS"
+          metadata="$RUNNER_TEMP/build-metadata.json"
+          docker buildx build . \
+            --platform linux/amd64,linux/arm64 \
+            --attest "type=provenance,mode=max,builder-id=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}" \
+            --metadata-file "$metadata" \
+            --push \
+            "${args[@]}"
+          digest="$(jq -r '."containerimage.digest" // empty' "$metadata")"
+          [ -n "$digest" ] || { echo "::error::no image digest in the build metadata"; exit 1; }
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       # This step generates an artifact attestation for the image, which is an unforgeable statement about where and how
       # it was built. It increases supply chain security for people who consume the image. For more information, see
@@ -89,3 +119,7 @@ jobs:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
+
+      - name: Log out of the Container registry
+        if: always()
+        run: docker logout "$REGISTRY"
